@@ -39,6 +39,9 @@ class Agent():
 
     def interact_with_environment(self, env, state, eps=0.):
         state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+        
+        # compute the Q-value for all actions at once in a particular state
+        # input (S) -> output (Q(S, a1), Q(S, a2), Q(S, a3) ... Q(S, an))
         self.qnetwork_local.eval()
         with torch.no_grad():
             action_values = self.qnetwork_local(state)
@@ -65,8 +68,12 @@ class Agent():
         # - Finally update the Target network
 
         states, actions, rewards, next_states, dones = self.memory.sample()
+
+        # forward prop to get actions-values + take the max Q(Sₜ₊₁,a) of the next state
         Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
+        # use bellman equation to compute optimal action-value function of the current state
         Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
+        
         Q_expected = self.qnetwork_local(states).gather(1, actions)
 
         loss = F.mse_loss(Q_expected, Q_targets)
