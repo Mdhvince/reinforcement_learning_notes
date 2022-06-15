@@ -13,7 +13,8 @@ BUFFER_SIZE = int(1e5)  # replay buffer size
 BATCH_SIZE = 64         # minibatch size
 GAMMA = 0.99            # discount factor
 TAU = 1e-3              # for soft update of target parameters
-LR = 5e-4               # learning rate 
+LR = 5e-4               # learning rate
+DDQN = True
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -23,21 +24,21 @@ class Agent():
 
     def __init__(self, env_conf, seed):
         state_size = env_conf["state_size"]
-        action_size = env_conf["action_size"]
+        self.action_size = env_conf["action_size"]
         self.seed = random.seed(seed)
 
-        self.qnetwork_local = QNetwork(state_size, action_size, seed).to(device)
-        self.qnetwork_target = QNetwork(state_size, action_size, seed).to(device)
+        self.qnetwork_local = QNetwork(state_size, self.action_size, seed).to(device)
+        self.qnetwork_target = QNetwork(state_size, self.action_size, seed).to(device)
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
 
-        self.memory = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, seed)
+        self.memory = ReplayBuffer(self.action_size, BUFFER_SIZE, BATCH_SIZE, seed)
 
 
     def store_experience(self, state, action, reward, next_state, done):
         self.memory.add(state, action, reward, next_state, done)        
 
 
-    def interact_with_environment(self, env, state, eps=0.):
+    def interact_with_environment(self, env, state, eps, device):
         state = torch.from_numpy(state).float().unsqueeze(0).to(device)
         
         # compute the Q-value for all actions at once in a particular state
@@ -55,7 +56,7 @@ class Agent():
         return action, reward, next_state, done
 
 
-    def learn(self, gamma):
+    def learn(self):
         # - get and sample data from the replay buffer
         # - perform inference using the TARGET network (DQN as well) with Sₜ₊₁ as input
         # - Get the MAX Q value predicted: Q_target_next
@@ -68,11 +69,17 @@ class Agent():
         # - Finally update the Target network
 
         states, actions, rewards, next_states, dones = self.memory.sample()
+        
+        if DDQN:
+            argmax_q_next = self.qnetwork_local(next_states).detach().argmax(dim=1).unsqueeze(-1)
+            q_next = self.qnetwork_target(next_states).gather(1, argmax_q_next)
+            Q_targets = rewards + (GAMMA * q_next * (1 - dones))
+        else:
+            # forward prop to get actions-values + take the max Q(Sₜ₊₁,a) of the next state
+            Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
+            # use bellman equation to compute optimal action-value function of the current state
+            Q_targets = rewards + (GAMMA * Q_targets_next * (1 - dones))
 
-        # forward prop to get actions-values + take the max Q(Sₜ₊₁,a) of the next state
-        Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
-        # use bellman equation to compute optimal action-value function of the current state
-        Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
         
         Q_expected = self.qnetwork_local(states).gather(1, actions)
 
@@ -135,12 +142,10 @@ class ReplayBuffer:
 
 if __name__ == "__main__":
     env = gym.make('LunarLander-v2')
-    env.seed(0)
-    environment_configuration = {"step_size": 8, "action_size": 4}
+    environment_configuration = {"state_size": 8, "action_size": 4}
     
-    n_episodes = 1000
-    max_time_steps = 50
-    batch_size = 32
+    n_episodes = 2000
+    max_time_steps = 1000
     learn_every = 5
     score_episodes = []
     eps_start = 1.0
@@ -148,16 +153,17 @@ if __name__ == "__main__":
     eps_decay = 0.995
 
     agent = Agent(environment_configuration, seed=0)
+    eps = eps_start
 
     for episode in range(n_episodes+1):
-        state = env.reset()
+        state = env.reset(seed=0)
         sum_rewards = 0
 
         for t in range(max_time_steps):
             action, reward, next_state, done = agent.interact_with_environment(env, state, eps, device)
             agent.store_experience(state, action, reward, next_state, done)
 
-            if t % learn_every == 0 and len(agent.memory) >= batch_size:
+            if t % learn_every == 0 and len(agent.memory) >= BATCH_SIZE:
                 agent.learn()  # sample and learn
 
             state = next_state
@@ -167,7 +173,9 @@ if __name__ == "__main__":
         
         score_episodes.append(sum_rewards)
         eps = max(eps_end, eps_decay*eps) # decay epsilon : explore a bit less
-        print(f"Score episode {t+1}: {sum_rewards}")
+
+        if episode % 100 == 0:
+            print(f"AVG score episode {episode}: {np.mean(score_episodes[-100:])}")
                 
 
 

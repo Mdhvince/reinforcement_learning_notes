@@ -146,7 +146,7 @@ So we will proceed as follow
 
 
 TD Method update using __SarsaMax__ or __Q-Learning__   
-__`Q(Sₜ, Aₜ) += α(Rₜ₊₁ +  γ*argmaxQ(Sₜ₊₁, Aₜ₊₁) - Q(Sₜ, Aₜ))`__  
+__`Q(Sₜ, Aₜ) += α(Rₜ₊₁ +  γ*maxQ(Sₜ₊₁, Aₜ₊₁) - Q(Sₜ, Aₜ))`__  
 The only diffrence is  
 >- instead of choosing __`Q(Sₜ₊₁, Aₜ₊₁)`__, we choose the action A that yield the max return when in state  __`Sₜ₊₁`__
 
@@ -222,4 +222,25 @@ For this, we need to fix the function parameter used to generate the target:
 >- Use of __`𝐖⁻`__ to generate targets while changing __`𝐖`__ during a certain number of epochs
 >- Then we update __`𝐖⁻`__ with the latest version of __`𝐖`__ after n epochs  
 >- Repeat  
+
+
+
+### Some notes on Double-DQN Paper  
+The problem: Q-learning or even DQN tend to learn too high action values, because it include a maximization step over estimated action values.
+If an error is done during estimation of Q(s, a), it is likely to be overestimated.  
+  
+if all are Q(s, a) are overestimated, it is not a problem because the relative action preference will stay the same.
+
+#### How is Double-DQN solves this ?
+in DQN, the target network action value estimate is written as follow:  
+__`Yₜ = Rₜ₊₁ + γ * maxQ_target(Sₜ₊₁, a; 𝐖⁻)`__  
+  
+so here `Q_target(Sₜ₊₁, a; 𝐖⁻)` in an inference using the target network, then `maxQ_target(Sₜ₊₁, a; 𝐖⁻)` is selecting the action, then all of this is used to update the Q_target(s, a; 𝐖⁻) = `Yₜ` value estimate.  
+for short, the DQN uses the same values both to select and to evaluate an action. An this makes it more likely to select overestimated values.  
+
+The idea behind Double Q-learning is to decouple the selection from the evaluation.  
+  
+- Two value functions are learned by assigning them random experience to update one of the two. So we hawe 2 set of weight `𝐖` and `𝐖⁻`.  
+- for each update, one run the inference to get the __action that yield max value__ : __`argmax(Q, (Sₜ₊₁, a; 𝐖))`__  
+- and the other run the inference using that action in order the get the action value __`Q(Sₜ₊₁, argmax(Q, (Sₜ₊₁, a; 𝐖), 𝐖⁻)`__  
 
