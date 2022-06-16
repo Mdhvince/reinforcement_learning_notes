@@ -225,13 +225,13 @@ For this, we need to fix the function parameter used to generate the target:
 
 
 
-### Some notes on Double-DQN Paper  
+#### Some notes on Double-DQN Paper  
 The problem: Q-learning or even DQN tend to learn too high action values, because it include a maximization step over estimated action values.
 If an error is done during estimation of Q(s, a), it is likely to be overestimated.  
   
 if all are Q(s, a) are overestimated, it is not a problem because the relative action preference will stay the same.
 
-#### How is Double-DQN solves this ?
+##### How is Double-DQN solves this ?
 in DQN, the target network action value estimate is written as follow:  
 __`Yₜ = Rₜ₊₁ + γ * maxQ_target(Sₜ₊₁, a; 𝐖⁻)`__  
   
@@ -243,4 +243,97 @@ The idea behind Double Q-learning is to decouple the selection from the evaluati
 - Two value functions are learned by assigning them random experience to update one of the two. So we hawe 2 set of weight `𝐖` and `𝐖⁻`.  
 - for each update, one run the inference to get the __action that yield max value__ : __`argmax(Q, (Sₜ₊₁, a; 𝐖))`__  
 - and the other run the inference using that action in order the get the action value __`Q(Sₜ₊₁, argmax(Q, (Sₜ₊₁, a; 𝐖), 𝐖⁻)`__  
+
+### Policy-Based Methods 
+
+In value-based method, we have to first __estimate the optimal value function__ before we can tackle the optimal policy.  
+  
+> Can we directly find the optimal policy ?  
+> YES - using __Policy-based methods__  
+
+How to use neural networks to approximate a policy ?  
+
+- states as input
+- nb of nodes in final layer =  nb of actions  
+- output the probability of selecting each possible actions  (ie `p(up)`, `p(down)`, `p(stay)`) using the __softmax__ activation function.  
+
+What about continuous action-spaces ?  
+In this case, the output layer will have a node for each action index.  
+In the finite action-space, the action is for example to go up __OR__ down __OR__ stay, it is one __OR__ another.  
+In the continuous-space the agent can:  
+- apply a torque value on hip joint ranging from -1, 1  
+- __AND__ apply a torque value on shoulder joint ranging from -1, 1  
+- __AND__ apply a torque value on shoulder ankle ranging from -1, 1 
+
+So we will have 3 nodes as output. Each gives a vector of size 3 with values ranging from -1, 1  
+[hip, shoulder, joint]  
+[hip, shoulder, joint]  
+[hip, shoulder, joint]  
+
+And we could used the tanh activation function since values ranging from -1, 1  
+
+##### Hill climbing Algorithm
+
+Agent goal: Maximize expected return __𝓙__  
+We denote the weight as __θ__  
+There is a mathematical relationship between __𝓙__ and __θ__. Because the weight __θ__ encode the policy which makes some actions more likely than the other, which then influence the rewards and then the expected return __𝓙__.  
+So we can write the expected return __𝓙__ as a function of __θ__:  
+> ### __𝓙(θ) = Σ P(τ; θ) * R(τ)__  
+So we have to find the values for the weigths __θ__ that maximize __𝓙__ using gradient ascent (steping in the direction of the gradient)  
+
+Pseudo code:  
+
+- initialize a set of weights __θ__  
+- collect an episode using __θ__, and record the return __G__  
+- so __G_best = G__ and __θ_best = θ__  
+>- Add some noise to __θ_best__ to generate another set of weight __θ_new__  
+>- collect an episode using __θ_new__, and record the return __G_new__  
+>- __`if G_new > G_best:     G_best = G_new and θ_best = θ_new`__  
+>- Redo the 3 above steps until environment solved.  
+
+Improvement of the hill climbing algorithm:  
+__Steepest Ascent__: Instead of adding noise to generate __θ_new__   
+>- we can add __n__ differents noises to generate __n__ differents (neighbors) __θ_new__  
+>- then take the __θ_new__ that yield the best __G__  
+>- continue as above  
+
+__Cross entropy method__: instead of directly taking the __θ_new__ that yield the best __G__ as in __Steepest Ascent__  
+>- collect the __top n best__ and take their average to have __θ_new__  
+
+__Simulated Annealing__: Control how the policy space is explored  
+>- start with a large noise parameter (the larger the noise, the larger the distance betwwen each  __θ_new__)   
+>- take the best  __θ_new__  
+>- continue as above  
+>- at the next step, Reduce the noise parameter and so on...  
+
+__Adaptive Noise__: instead of directly reducing the noise parameter at the next step of the __Simulated Annealing__  
+>- If the __θ__ is better : We __reduce the noise__ otherwise we __raise the noise__  
+
+_Note: Raising or decreasing a gaussian noise is means raising or decreasing the variance_  
+
+
+#### Policy-Gradient Methods 
+__Policy-Gradient Methods__ is about estimating the the best weight __θ__ using __gradient ascent__.  
+Here is the idea:  
+>- collect episode  
+>- separate the episode into a __Trajectory τ__ (state-action sequence with no restriction on its length `H`) and the sum of rewards of this trajectory __R(τ)__  
+We want to __maximize the expected return 𝓤 (θ)__ :  
+> ### __𝓤 (θ) = Σ P(τ; θ) * R(τ)__  
+> __P(τ; θ)__ represent the probability of each possible trajectory  
+
+>- at each time step , take the State/Action paire  
+>- feedforward the state to the nexwork and get the probability on that action  
+
+>- if the state-action paire was part of the successful episode : enforce the weight of that action otherwise lower it.  
+>- this last step can be achieve all at once using this equation  
+> ### __⛛_θ 𝓤 (θ) ≈ ^g = Σ₍ₜ₌₀ ₜₒ ₕ₎ ⛛_θ log(π_θ(aₜ | sₜ)) * R(τ)__  
+>- `^g` is the estimate of the gradient. If `R(τ)` is successful, result will be reinforced, otherwise value of `R(τ)` will be lower so the estimate of the gradient `^g` will decrease. `⛛_θ` denote the direction of the steepest gradiient.  
+>- Do this for multiple trajectories __𝓶__ `(Σ₍ᵢ₌₁ ₜₒ ₘ₎)` by summing all `^g` and divide all by the number of trajectories __𝓶__.  
+So the equation is now:  
+> ### __⛛_θ 𝓤 (θ) ≈ ^g = 1/𝓶 * Σ₍ᵢ₌₁ ₜₒ ₘ₎ Σ₍ₜ₌₀ ₜₒ ₕ₎ ⛛_θ log(π_θ(aₜ | sₜ)) * R(τ)__  
+
+
+
+
+
 
